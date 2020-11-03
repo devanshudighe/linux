@@ -371,7 +371,7 @@ void kvm_set_cpu_caps(void)
 		F(AVX512_4VNNIW) | F(AVX512_4FMAPS) | F(SPEC_CTRL) |
 		F(SPEC_CTRL_SSBD) | F(ARCH_CAPABILITIES) | F(INTEL_STIBP) |
 		F(MD_CLEAR) | F(AVX512_VP2INTERSECT) | F(FSRM) |
-		F(SERIALIZE)
+		F(SERIALIZE) | F(TSXLDTRK)
 	);
 
 	/* TSC_ADJUST and ARCH_CAPABILITIES are emulated in software. */
@@ -1072,6 +1072,11 @@ bool kvm_cpuid(struct kvm_vcpu *vcpu, u32 *eax, u32 *ebx,
 }
 EXPORT_SYMBOL_GPL(kvm_cpuid);
 
+
+atomic_long_t cyclesSpentInExit = ATOMIC_LONG_INIT(0);
+atomic_t numberOfExits = ATOMIC_INIT(0);
+
+
 int kvm_emulate_cpuid(struct kvm_vcpu *vcpu)
 {
 	u32 eax, ebx, ecx, edx;
@@ -1081,11 +1086,27 @@ int kvm_emulate_cpuid(struct kvm_vcpu *vcpu)
 
 	eax = kvm_rax_read(vcpu);
 	ecx = kvm_rcx_read(vcpu);
-	kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, false);
+
+	/*Code changes for assignment
+	 */
+	if(eax == 0x4FFFFFFF){
+		long cycleTime = atomic_long_read(&cyclesSpentInExit);
+		u32 low32Bits = (u32)cycleTime;
+		u32 high32Bits = cycleTime >> 32;
+		eax = atomic_read(&numberOfExits);
+		ebx = high32Bits;
+		ecx = low32Bits;
+		edx = 0;	
+	} else{
+		kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, true);	
+	}
 	kvm_rax_write(vcpu, eax);
 	kvm_rbx_write(vcpu, ebx);
 	kvm_rcx_write(vcpu, ecx);
 	kvm_rdx_write(vcpu, edx);
+
 	return kvm_skip_emulated_instruction(vcpu);
 }
 EXPORT_SYMBOL_GPL(kvm_emulate_cpuid);
+EXPORT_SYMBOL(cyclesSpentInExit);
+EXPORT_SYMBOL(numberOfExits);
