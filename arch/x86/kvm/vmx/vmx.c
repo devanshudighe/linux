@@ -13,7 +13,6 @@
  *   Yaniv Kamay  <yaniv@qumranet.com>
  */
 
-#include <linux/frame.h>
 #include <linux/highmem.h>
 #include <linux/hrtimer.h>
 #include <linux/kernel.h>
@@ -22,6 +21,7 @@
 #include <linux/moduleparam.h>
 #include <linux/mod_devicetable.h>
 #include <linux/mm.h>
+#include <linux/objtool.h>
 #include <linux/sched.h>
 #include <linux/sched/smt.h>
 #include <linux/slab.h>
@@ -5981,15 +5981,29 @@ void dump_vmcs(void)
 		       vmcs_read16(VIRTUAL_PROCESSOR_ID));
 }
 
+/*Code changes for assignment
+ */
+extern atomic_long_t cyclesSpentInExit;
+extern atomic_t numberOfExits;
+
 /*
  * The guest has exited.  See if we can fix it or if we need userspace
  * assistance.
  */
 static int vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 {
+	int handle_exits;
+	u32 totalCycles;
+	u32 startTime;
+	u32 endTime;
+	
+	
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	u32 exit_reason = vmx->exit_reason;
 	u32 vectoring_info = vmx->idt_vectoring_info;
+
+	startTime = rdtsc();
+	atomic_inc(&numberOfExits);
 
 	/*
 	 * Flush logged GPAs PML buffer, this will make dirty_bitmap more
@@ -6122,7 +6136,14 @@ static int vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 	if (!kvm_vmx_exit_handlers[exit_reason])
 		goto unexpected_vmexit;
 
-	return kvm_vmx_exit_handlers[exit_reason](vcpu);
+	handle_exits = kvm_vmx_exit_handlers[exit_reason](vcpu);
+	endTime = rdtsc();
+	totalCycles = endTime - startTime;
+	atomic64_add(totalCycles,&cyclesSpentInExit);
+	/*printk("CPUID(0x4FFFFFFF),Number of Exits: %d, Cycles spent in exit: %ld", atomic_read(&numberOfExits), atomic_long_read(&cyclesSpentInExit)); */
+	printk("CPUID(0x4FFFFFFF),Number of Exits: %d, Cycles spent in exit: %d", atomic_read(&numberOfExits), totalCycles);
+
+	return handle_exits;
 
 unexpected_vmexit:
 	vcpu_unimpl(vcpu, "vmx: unexpected exit reason 0x%x\n", exit_reason);
@@ -6135,7 +6156,6 @@ unexpected_vmexit:
 	vcpu->run->internal.data[1] = vcpu->arch.last_vmentry_cpu;
 	return 0;
 }
-
 /*
  * Software based L1D cache flush which is used when microcode providing
  * the cache control MSR is not loaded.
