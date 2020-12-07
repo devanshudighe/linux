@@ -5985,7 +5985,7 @@ void dump_vmcs(void)
  */
 extern atomic_long_t cyclesSpentInExit;
 extern atomic_t numberOfExits;
-
+extern atomic_t num_exits_per_reason[69] ;
 /*
  * The guest has exited.  See if we can fix it or if we need userspace
  * assistance.
@@ -6138,10 +6138,11 @@ static int vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 
 	handle_exits = kvm_vmx_exit_handlers[exit_reason](vcpu);
 	endTime = rdtsc();
+	atomic_inc(&num_exits_per_reason[(int)exit_reason]);
 	totalCycles = endTime - startTime;
 	atomic64_add(totalCycles,&cyclesSpentInExit);
-	/*printk("CPUID(0x4FFFFFFF),Number of Exits: %d, Cycles spent in exit: %ld", atomic_read(&numberOfExits), atomic_long_read(&cyclesSpentInExit)); */
-	printk("CPUID(0x4FFFFFFF),Number of Exits: %d, Cycles spent in exit: %d", atomic_read(&numberOfExits), totalCycles);
+	//printk("CPUID(0x4FFFFFFF),Number of Exits: %d, Cycles spent in exit: %ld", atomic_read(&numberOfExits), atomic_long_read(&cyclesSpentInExit));
+	
 
 	return handle_exits;
 
